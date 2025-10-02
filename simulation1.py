@@ -19,7 +19,8 @@ default_config = {
     "battery_capacity": 5.0,
     "peukert_exponent": 1.1,
     "peukert_ref_current": 1.0,
-    "mileage": 15.0
+    "mileage": 15.0,
+    "max_current": 20.0  # Added max current limit
 }
 
 # --- Layout ---
@@ -62,6 +63,8 @@ app.layout = dbc.Container([
                             dbc.Input(id="peukert_exponent", type="number", value=default_config["peukert_exponent"], step=0.1)]),
             dbc.InputGroup([dbc.InputGroupText("Peukert Ref Current"),
                             dbc.Input(id="peukert_ref_current", type="number", value=default_config["peukert_ref_current"], step=0.5)]),
+            dbc.InputGroup([dbc.InputGroupText("Max Current (A)"),
+                            dbc.Input(id="max_current", type="number", value=default_config["max_current"], step=1)]),
 
             dbc.Button("Apply Config", id="apply_config", color="warning", className="mt-3"),
 
@@ -107,14 +110,15 @@ def make_bar(title, value, text, color, maxv):
     Output("sim_state", "data"),
     Input("start_stop", "n_clicks"),
     State("sim_state", "data"),
+    State("sim_config", "data"),  # Added to get current config
     prevent_initial_call=True
 )
-def toggle_run(n, state):
+def toggle_run(n, state, config):
     state["running"] = not state["running"]
     if state["running"]:
         state["start_time"] = time.time()
         state["distance"] = 0.0
-        state["battery"] = default_config["battery_capacity"]
+        state["battery"] = config["battery_capacity"]  # Use config instead of default_config
     return state
 
 
@@ -131,9 +135,10 @@ def toggle_run(n, state):
     State("current_per_speed", "value"),
     State("peukert_exponent", "value"),
     State("peukert_ref_current", "value"),
+    State("max_current", "value"),  # Added max_current
     prevent_initial_call=True
 )
-def update_config(n, max_speed, batt, mileage, base, heater, light, cps, peukert, p_ref):
+def update_config(n, max_speed, batt, mileage, base, heater, light, cps, peukert, p_ref, max_current):
     return {
         "max_speed": max_speed,
         "battery_capacity": batt,
@@ -144,6 +149,7 @@ def update_config(n, max_speed, batt, mileage, base, heater, light, cps, peukert
         "current_per_speed": cps,
         "peukert_exponent": peukert,
         "peukert_ref_current": p_ref,
+        "max_current": max_current,  # Added max_current
     }
 
 
@@ -164,6 +170,9 @@ def simulation_tick(tick, state, config, accessories):
     amps = config["base_current"] + state["speed"] * config["current_per_speed"]
     if "lights" in accessories: amps += config["light_current"]
     if "heater" in accessories: amps += config["heater_current"]
+    
+    # Limit to max current
+    amps = min(amps, config["max_current"])
     amps = max(0.01, amps)
 
     # Drain faster multiplier for demo speed
@@ -184,16 +193,39 @@ def simulation_tick(tick, state, config, accessories):
     Input("speed_down", "n_clicks"),
     State("sim_state", "data"),
     State("sim_config", "data"),
+    State("accessories", "value"),  # Added accessories to check current limit
     prevent_initial_call="initial_duplicate"
 )
-def adjust_speed(up, down, state, config):
+def adjust_speed(up, down, state, config, accessories):
     ctx = dash.callback_context
     if not ctx.triggered:
         return state
     trigger = ctx.triggered[0]["prop_id"].split(".")[0]
 
     if trigger == "speed_up":
-        state["speed"] = min(config["max_speed"], state["speed"] + 1.0)
+        # Calculate what the current would be at the new speed
+        new_speed = state["speed"] + 1.0
+        potential_amps = config["base_current"] + new_speed * config["current_per_speed"]
+        
+        # Add accessory current
+        if "lights" in accessories: 
+            potential_amps += config["light_current"]
+        if "heater" in accessories: 
+            potential_amps += config["heater_current"]
+        
+        # Only increase speed if it won't exceed max current
+        if potential_amps <= config["max_current"]:
+            state["speed"] = min(config["max_speed"], new_speed)
+        # If it would exceed, calculate the maximum allowed speed
+        else:
+            available_current = config["max_current"] - config["base_current"]
+            if "lights" in accessories: 
+                available_current -= config["light_current"]
+            if "heater" in accessories: 
+                available_current -= config["heater_current"]
+            max_allowed_speed = available_current / config["current_per_speed"]
+            state["speed"] = max(0, min(config["max_speed"], max_allowed_speed))
+            
     elif trigger == "speed_down":
         state["speed"] = max(0, state["speed"] - 1.0)
     return state
@@ -217,6 +249,9 @@ def update_graphs(state, config, accessories):
     amps = config["base_current"] + speed * config["current_per_speed"]
     if "lights" in accessories: amps += config["light_current"]
     if "heater" in accessories: amps += config["heater_current"]
+    
+    # Limit to max current
+    amps = min(amps, config["max_current"])
 
     # --- Graphs ---
     speed_fig = make_bar("Speed", speed, f"{speed:.1f} m/s", "#118AB2", config["max_speed"])
@@ -224,7 +259,7 @@ def update_graphs(state, config, accessories):
     mileage_fig = make_bar("Mileage Left", mileage_left, f"{mileage_left:.1f} mi", "#FFD166", config["mileage"])
     battery_percent = (battery/config["battery_capacity"])*100
     battery_fig = make_bar("Battery", battery_percent, f"{battery_percent:.1f} %", "#06D6A0", 100)
-    amp_fig = make_bar("Amps", amps, f"{amps:.2f} A", "#EF476F", 20)
+    amp_fig = make_bar("Amps", amps, f"{amps:.2f} A", "#EF476F", config["max_current"])
 
     # --- Status Info ---
     elapsed = time.time() - state["start_time"] if state["running"] else 0
@@ -240,7 +275,8 @@ def update_graphs(state, config, accessories):
     Speed: {speed:.1f} m/s | 
     Avg Speed: {avg_speed:.2f} m/s | 
     Distance Travelled: {distance:.2f} km | 
-    Battery Remaining: {battery:.2f} Ah / {config['battery_capacity']} Ah
+    Battery Remaining: {battery:.2f} Ah / {config['battery_capacity']} Ah |
+    Current Draw: {amps:.2f} A / {config['max_current']} A max
     """
 
     return speed_fig, mileage_fig, battery_fig, amp_fig, status
@@ -248,4 +284,4 @@ def update_graphs(state, config, accessories):
 
 # --- Run App ---
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
