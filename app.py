@@ -20,7 +20,7 @@ default_config = {
     "peukert_exponent": 1.1,
     "peukert_ref_current": 1.0,
     "mileage": 15.0,
-    "max_current": 20.0  # Added max current limit
+    "max_current": 3.0  # Changed to 3.0 to match the first simulator
 }
 
 # --- Layout ---
@@ -81,13 +81,17 @@ app.layout = dbc.Container([
             dbc.Row([
                 dbc.Col(dcc.Graph(id="battery_graph"), md=6),
                 dbc.Col(dcc.Graph(id="amperage_graph"), md=6),
+            ]),
+            # Current limited warning
+            dbc.Row([
+                dbc.Col(html.Div(id="current_limited_warning", style={"textAlign": "center", "marginTop": "10px"}))
             ])
         ], md=9)
     ]),
 
     # Hidden stores and timer
     dcc.Store(id="sim_state", data={"running": False, "speed": 0, "battery": default_config["battery_capacity"],
-                                    "distance": 0, "start_time": time.time()}),
+                                    "distance": 0, "start_time": time.time(), "current_limited": False}),
     dcc.Store(id="sim_config", data=default_config),
     dcc.Interval(id="sim_interval", interval=1000, n_intervals=0)
 ], fluid=True)
@@ -110,7 +114,7 @@ def make_bar(title, value, text, color, maxv):
     Output("sim_state", "data"),
     Input("start_stop", "n_clicks"),
     State("sim_state", "data"),
-    State("sim_config", "data"),  # Added to get current config
+    State("sim_config", "data"),
     prevent_initial_call=True
 )
 def toggle_run(n, state, config):
@@ -118,7 +122,7 @@ def toggle_run(n, state, config):
     if state["running"]:
         state["start_time"] = time.time()
         state["distance"] = 0.0
-        state["battery"] = config["battery_capacity"]  # Use config instead of default_config
+        state["battery"] = config["battery_capacity"]
     return state
 
 
@@ -135,7 +139,7 @@ def toggle_run(n, state, config):
     State("current_per_speed", "value"),
     State("peukert_exponent", "value"),
     State("peukert_ref_current", "value"),
-    State("max_current", "value"),  # Added max_current
+    State("max_current", "value"),
     prevent_initial_call=True
 )
 def update_config(n, max_speed, batt, mileage, base, heater, light, cps, peukert, p_ref, max_current):
@@ -149,11 +153,11 @@ def update_config(n, max_speed, batt, mileage, base, heater, light, cps, peukert
         "current_per_speed": cps,
         "peukert_exponent": peukert,
         "peukert_ref_current": p_ref,
-        "max_current": max_current,  # Added max_current
+        "max_current": max_current,
     }
 
 
-# Simulation Tick
+# Simulation Tick - CORRECTED
 @app.callback(
     Output("sim_state", "data", allow_duplicate=True),
     Input("sim_interval", "n_intervals"),
@@ -166,34 +170,100 @@ def simulation_tick(tick, state, config, accessories):
     if not state["running"]:
         return state
 
-    # --- Current draw ---
+    # Calculate current demand at current speed
     amps = config["base_current"] + state["speed"] * config["current_per_speed"]
-    if "lights" in accessories: amps += config["light_current"]
-    if "heater" in accessories: amps += config["heater_current"]
+    if "lights" in accessories: 
+        amps += config["light_current"]
+    if "heater" in accessories: 
+        amps += config["heater_current"]
     
-    # Limit to max current
-    amps = min(amps, config["max_current"])
+    # If current demand exceeds max, reduce speed
+    if amps > config["max_current"]:
+        # Calculate maximum allowed speed given current accessories
+        available_current = config["max_current"] - config["base_current"]
+        if "lights" in accessories: 
+            available_current -= config["light_current"]
+        if "heater" in accessories: 
+            available_current -= config["heater_current"]
+        
+        # Calculate max speed that stays within current limit
+        if config["current_per_speed"] > 0:
+            max_allowed_speed = available_current / config["current_per_speed"]
+            state["speed"] = max(0, min(state["speed"], max_allowed_speed))
+            state["current_limited"] = True
+        else:
+            state["speed"] = 0
+            state["current_limited"] = True
+        
+        # Recalculate current with adjusted speed
+        amps = config["base_current"] + state["speed"] * config["current_per_speed"]
+        if "lights" in accessories: 
+            amps += config["light_current"]
+        if "heater" in accessories: 
+            amps += config["heater_current"]
+    else:
+        state["current_limited"] = False
+    
     amps = max(0.01, amps)
 
+    # Apply Peukert effect
+    peukert_multiplier = (amps / config["peukert_ref_current"]) ** (config["peukert_exponent"] - 1)
+    
     # Drain faster multiplier for demo speed
     DRAIN_MULTIPLIER = 10  
 
-    # Battery drain (Ah/sec)
-    state["battery"] = max(0, state["battery"] - (amps/3600.0)*DRAIN_MULTIPLIER)
+    # Battery drain (Ah/sec) with Peukert effect
+    state["battery"] = max(0, state["battery"] - (amps/3600.0) * peukert_multiplier * DRAIN_MULTIPLIER)
+    
     # Distance traveled (km/sec)
     state["distance"] += state["speed"]/1000.0
 
     return state
 
 
-# Speed Adjust
+# Handle accessory changes - NEW
+@app.callback(
+    Output("sim_state", "data", allow_duplicate=True),
+    Input("accessories", "value"),
+    State("sim_state", "data"),
+    State("sim_config", "data"),
+    prevent_initial_call="initial_duplicate"
+)
+def adjust_for_accessories(accessories, state, config):
+    # Calculate what current would be with current speed and accessories
+    amps = config["base_current"] + state["speed"] * config["current_per_speed"]
+    if "lights" in accessories: 
+        amps += config["light_current"]
+    if "heater" in accessories: 
+        amps += config["heater_current"]
+    
+    # If it exceeds max current, reduce speed
+    if amps > config["max_current"]:
+        available_current = config["max_current"] - config["base_current"]
+        if "lights" in accessories: 
+            available_current -= config["light_current"]
+        if "heater" in accessories: 
+            available_current -= config["heater_current"]
+        
+        if config["current_per_speed"] > 0:
+            max_allowed_speed = available_current / config["current_per_speed"]
+            state["speed"] = max(0, min(state["speed"], max_allowed_speed))
+            state["current_limited"] = True
+        else:
+            state["speed"] = 0
+            state["current_limited"] = True
+    
+    return state
+
+
+# Speed Adjust - CORRECTED
 @app.callback(
     Output("sim_state", "data", allow_duplicate=True),
     Input("speed_up", "n_clicks"),
     Input("speed_down", "n_clicks"),
     State("sim_state", "data"),
     State("sim_config", "data"),
-    State("accessories", "value"),  # Added accessories to check current limit
+    State("accessories", "value"),
     prevent_initial_call="initial_duplicate"
 )
 def adjust_speed(up, down, state, config, accessories):
@@ -216,18 +286,24 @@ def adjust_speed(up, down, state, config, accessories):
         # Only increase speed if it won't exceed max current
         if potential_amps <= config["max_current"]:
             state["speed"] = min(config["max_speed"], new_speed)
-        # If it would exceed, calculate the maximum allowed speed
+            state["current_limited"] = False
         else:
+            # Calculate the maximum allowed speed
             available_current = config["max_current"] - config["base_current"]
             if "lights" in accessories: 
                 available_current -= config["light_current"]
             if "heater" in accessories: 
                 available_current -= config["heater_current"]
-            max_allowed_speed = available_current / config["current_per_speed"]
-            state["speed"] = max(0, min(config["max_speed"], max_allowed_speed))
+            
+            if config["current_per_speed"] > 0:
+                max_allowed_speed = available_current / config["current_per_speed"]
+                state["speed"] = max(0, min(config["max_speed"], max_allowed_speed))
+                state["current_limited"] = True
             
     elif trigger == "speed_down":
         state["speed"] = max(0, state["speed"] - 1.0)
+        state["current_limited"] = False
+        
     return state
 
 
@@ -237,7 +313,8 @@ def adjust_speed(up, down, state, config, accessories):
      Output("mileage_graph", "figure"),
      Output("battery_graph", "figure"),
      Output("amperage_graph", "figure"),
-     Output("status", "children")],
+     Output("status", "children"),
+     Output("current_limited_warning", "children")],
     Input("sim_state", "data"),
     State("sim_config", "data"),
     State("accessories", "value")
@@ -250,7 +327,7 @@ def update_graphs(state, config, accessories):
     if "lights" in accessories: amps += config["light_current"]
     if "heater" in accessories: amps += config["heater_current"]
     
-    # Limit to max current
+    # This should never exceed max current due to our limiting logic
     amps = min(amps, config["max_current"])
 
     # --- Graphs ---
@@ -278,10 +355,16 @@ def update_graphs(state, config, accessories):
     Battery Remaining: {battery:.2f} Ah / {config['battery_capacity']} Ah |
     Current Draw: {amps:.2f} A / {config['max_current']} A max
     """
+    
+    # Current limited warning
+    warning = ""
+    if state.get("current_limited", False):
+        warning = dbc.Alert("⚠️ CURRENT LIMITED - Speed reduced to stay within max current", color="warning")
 
-    return speed_fig, mileage_fig, battery_fig, amp_fig, status
+    return speed_fig, mileage_fig, battery_fig, amp_fig, status, warning
 
 
 # --- Run App ---
 if __name__ == "__main__":
-    app.run(debug=False)
+    print("Starting wheelchair simulator at http://127.0.0.1:8050/")
+    app.run(debug=True, host='127.0.0.1', port=8050)
