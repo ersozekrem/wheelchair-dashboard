@@ -20,7 +20,7 @@ default_config = {
     "peukert_exponent": 1.1,
     "peukert_ref_current": 1.0,
     "mileage": 15.0,
-    "max_current": 3.0  # Changed to 3.0 to match the first simulator
+    "max_current": 3.0
 }
 
 # --- Layout ---
@@ -123,6 +123,7 @@ def toggle_run(n, state, config):
         state["start_time"] = time.time()
         state["distance"] = 0.0
         state["battery"] = config["battery_capacity"]
+        state["speed"] = 0  # Reset speed when starting
     return state
 
 
@@ -170,6 +171,13 @@ def simulation_tick(tick, state, config, accessories):
     if not state["running"]:
         return state
 
+    # **FIX 1: Check if battery is depleted**
+    if state["battery"] <= 0:
+        state["battery"] = 0
+        state["speed"] = 0
+        state["running"] = False
+        return state
+
     # Calculate current demand at current speed
     amps = config["base_current"] + state["speed"] * config["current_per_speed"]
     if "lights" in accessories: 
@@ -213,15 +221,24 @@ def simulation_tick(tick, state, config, accessories):
     DRAIN_MULTIPLIER = 10  
 
     # Battery drain (Ah/sec) with Peukert effect
-    state["battery"] = max(0, state["battery"] - (amps/3600.0) * peukert_multiplier * DRAIN_MULTIPLIER)
+    battery_drain = (amps/3600.0) * peukert_multiplier * DRAIN_MULTIPLIER
+    state["battery"] = max(0, state["battery"] - battery_drain)
     
-    # Distance traveled (km/sec)
-    state["distance"] += state["speed"]/1000.0
+    # **FIX 2: Distance traveled - convert to miles to match mileage**
+    # Speed is in m/s, convert to miles/s: 1 m/s = 0.000621371 miles/s
+    distance_miles_per_sec = state["speed"] * 0.000621371
+    state["distance"] += distance_miles_per_sec
+
+    # Check again if battery just died
+    if state["battery"] <= 0:
+        state["battery"] = 0
+        state["speed"] = 0
+        state["running"] = False
 
     return state
 
 
-# Handle accessory changes - NEW
+# Handle accessory changes
 @app.callback(
     Output("sim_state", "data", allow_duplicate=True),
     Input("accessories", "value"),
@@ -230,6 +247,11 @@ def simulation_tick(tick, state, config, accessories):
     prevent_initial_call="initial_duplicate"
 )
 def adjust_for_accessories(accessories, state, config):
+    # Don't adjust if battery is dead
+    if state["battery"] <= 0:
+        state["speed"] = 0
+        return state
+        
     # Calculate what current would be with current speed and accessories
     amps = config["base_current"] + state["speed"] * config["current_per_speed"]
     if "lights" in accessories: 
@@ -270,6 +292,12 @@ def adjust_speed(up, down, state, config, accessories):
     ctx = dash.callback_context
     if not ctx.triggered:
         return state
+    
+    # Don't allow speed changes if battery is dead
+    if state["battery"] <= 0:
+        state["speed"] = 0
+        return state
+        
     trigger = ctx.triggered[0]["prop_id"].split(".")[0]
 
     if trigger == "speed_up":
@@ -332,9 +360,13 @@ def update_graphs(state, config, accessories):
 
     # --- Graphs ---
     speed_fig = make_bar("Speed", speed, f"{speed:.1f} m/s", "#118AB2", config["max_speed"])
-    mileage_left = (battery/config["battery_capacity"]) * config["mileage"]
+    
+    # **FIX 3: Mileage left calculation - both now in miles**
+    battery_percent_remaining = battery / config["battery_capacity"] if config["battery_capacity"] > 0 else 0
+    mileage_left = battery_percent_remaining * config["mileage"]
     mileage_fig = make_bar("Mileage Left", mileage_left, f"{mileage_left:.1f} mi", "#FFD166", config["mileage"])
-    battery_percent = (battery/config["battery_capacity"])*100
+    
+    battery_percent = (battery/config["battery_capacity"])*100 if config["battery_capacity"] > 0 else 0
     battery_fig = make_bar("Battery", battery_percent, f"{battery_percent:.1f} %", "#06D6A0", 100)
     amp_fig = make_bar("Amps", amps, f"{amps:.2f} A", "#EF476F", config["max_current"])
 
@@ -344,21 +376,24 @@ def update_graphs(state, config, accessories):
     hours, mins = divmod(mins, 60)
     sim_time = f"{hours:02}:{mins:02}:{secs:02}"
 
-    avg_speed = (distance / (elapsed+1e-5)) * 1000  # m/s
+    # Average speed calculation (distance is now in miles)
+    avg_speed_mph = (distance / (elapsed / 3600)) if elapsed > 0 else 0  # miles per hour
 
     status = f"""
     Simulation Running: {state['running']} | 
     Simulation Time: {sim_time} | 
     Speed: {speed:.1f} m/s | 
-    Avg Speed: {avg_speed:.2f} m/s | 
-    Distance Travelled: {distance:.2f} km | 
+    Avg Speed: {avg_speed_mph:.2f} mph | 
+    Distance Travelled: {distance:.2f} mi | 
     Battery Remaining: {battery:.2f} Ah / {config['battery_capacity']} Ah |
     Current Draw: {amps:.2f} A / {config['max_current']} A max
     """
     
-    # Current limited warning
+    # Warning messages
     warning = ""
-    if state.get("current_limited", False):
+    if state["battery"] <= 0:
+        warning = dbc.Alert("🔋 BATTERY DEPLETED - Wheelchair stopped!", color="danger")
+    elif state.get("current_limited", False):
         warning = dbc.Alert("⚠️ CURRENT LIMITED - Speed reduced to stay within max current", color="warning")
 
     return speed_fig, mileage_fig, battery_fig, amp_fig, status, warning
