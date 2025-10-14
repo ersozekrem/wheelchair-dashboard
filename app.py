@@ -91,7 +91,8 @@ app.layout = dbc.Container([
 
     # Hidden stores and timer
     dcc.Store(id="sim_state", data={"running": False, "speed": 0, "battery": default_config["battery_capacity"],
-                                    "distance": 0, "start_time": time.time(), "current_limited": False}),
+                                "distance": 0, "start_time": time.time(), "current_limited": False,
+                                "cumulative_current": 0, "current_samples": 0}),
     dcc.Store(id="sim_config", data=default_config),
     dcc.Interval(id="sim_interval", interval=1000, n_intervals=0)
 ], fluid=True)
@@ -130,10 +131,12 @@ def update_button_text(state):
 def toggle_run(n, state, config):
     state["running"] = not state["running"]
     if state["running"]:
-        state["start_time"] = time.time()
-        state["distance"] = 0.0
-        state["battery"] = config["battery_capacity"]
-        state["speed"] = 0  # Reset speed when starting
+    state["start_time"] = time.time()
+    state["distance"] = 0.0
+    state["battery"] = config["battery_capacity"]
+    state["speed"] = 0
+    state["cumulative_current"] = 0
+    state["current_samples"] = 0
     return state
 
 
@@ -233,6 +236,10 @@ def simulation_tick(tick, state, config, accessories):
     # Battery drain (Ah/sec) with Peukert effect
     battery_drain = (amps/3600.0) * peukert_multiplier * DRAIN_MULTIPLIER
     state["battery"] = max(0, state["battery"] - battery_drain)
+
+    # Track cumulative current for average calculation
+    state["cumulative_current"] += amps
+    state["current_samples"] += 1
     
     # **FIX 2: Distance traveled - convert to miles to match mileage**
     # Speed is in m/s, convert to miles/s: 1 m/s = 0.000621371 miles/s
@@ -388,6 +395,9 @@ def update_graphs(state, config, accessories):
 
     # Average speed calculation (distance is now in miles)
     avg_speed_mph = (distance / (elapsed / 3600)) if elapsed > 0 else 0  # miles per hour
+    
+    # Calculate average current
+    avg_current = (state["cumulative_current"] / state["current_samples"]) if state["current_samples"] > 0 else 0
 
     status = f"""
     Simulation Running: {state['running']} | 
@@ -396,7 +406,7 @@ def update_graphs(state, config, accessories):
     Avg Speed: {avg_speed_mph:.2f} mph | 
     Distance Travelled: {distance:.2f} mi | 
     Battery Remaining: {battery:.2f} Ah / {config['battery_capacity']} Ah |
-    Current Draw: {amps:.2f} A / {config['max_current']} A max
+    Avg Current Draw: {avg_current:.2f} A / {config['max_current']} A max
     """
     
     # Warning messages
