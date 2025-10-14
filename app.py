@@ -30,7 +30,7 @@ app.layout = dbc.Container([
         dbc.Col([
             html.H2("♿ Wheelchair Dashboard", style={"color": "#FFD166"}),
 
-            dbc.Button("▶ Start/Stop", id="start_stop", color="success", className="m-1"),
+            dbc.Button("▶ Start", id="start_stop", color="success", className="m-1"),
             dbc.Button("▲ Speed Up", id="speed_up", color="primary", className="m-1"),
             dbc.Button("▼ Speed Down", id="speed_down", color="danger", className="m-1"),
 
@@ -106,8 +106,18 @@ def make_bar(title, value, text, color, maxv):
                                                  showlegend=False,
                                                  margin=dict(l=40, r=40, t=40, b=40))
 
-
 # --- Callbacks ---
+
+# Update button text based on running state
+@app.callback(
+    Output("start_stop", "children"),
+    Input("sim_state", "data")
+)
+def update_button_text(state):
+    if state["running"]:
+        return "■ Stop"
+    else:
+        return "▶ Start"
 
 # Toggle Running
 @app.callback(
