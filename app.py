@@ -96,7 +96,7 @@ app.layout = dbc.Container([
                                 "cumulative_current": 0, "current_samples": 0}),
     dcc.Store(id="sim_config", data=default_config),
     dcc.Store(id="trip_logs", data=[]),
-    dcc.Interval(id="sim_interval", interval=1000, n_intervals=0),
+    dcc.Interval(id="sim_interval", interval=100, n_intervals=0),
     dcc.Download(id="download_logs")
 ], fluid=True)
 
@@ -205,7 +205,7 @@ def update_config(n, max_speed, batt, mileage, base, heater, light, cps, peukert
 )
 def simulation_tick(tick, state, config, accessories):
     if not state["running"]:
-        return state
+        return dash.no_update  # Don't update if not running
 
     # **FIX 1: Check if battery is depleted**
     if state["battery"] <= 0:
@@ -254,7 +254,7 @@ def simulation_tick(tick, state, config, accessories):
     peukert_multiplier = (amps / config["peukert_ref_current"]) ** (config["peukert_exponent"] - 1)
     
     # Drain faster multiplier for demo speed
-    DRAIN_MULTIPLIER = 10  
+    DRAIN_MULTIPLIER = 1  # Changed from 10 since we update 10x faster now  
 
     # Battery drain (Ah/sec) with Peukert effect
     battery_drain = (amps/3600.0) * peukert_multiplier * DRAIN_MULTIPLIER
@@ -329,17 +329,18 @@ def adjust_for_accessories(accessories, state, config):
     prevent_initial_call="initial_duplicate"
 )
 def adjust_speed(up, down, state, config, accessories):
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return state
-    
     # Don't allow speed changes if battery is dead
     if state["battery"] <= 0:
         state["speed"] = 0
         return state
-        
+    
+    # Determine which button was clicked based on the counts
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return state
+    
     trigger = ctx.triggered[0]["prop_id"].split(".")[0]
-
+    
     if trigger == "speed_up":
         # Calculate what the current would be at the new speed
         new_speed = state["speed"] + 1.0
