@@ -4,7 +4,6 @@ import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 import time
-import pandas as pd
 
 # Initialize app with Bootstrap theme
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.SOLAR])
@@ -453,9 +452,14 @@ def export_logs(n_clicks, trip_logs):
     if not trip_logs:
         return None
     
-    import pandas as pd
-    df = pd.DataFrame(trip_logs)
-    csv_string = df.to_csv(index=False)
+    # Create CSV manually without pandas
+    csv_lines = ["timestamp,duration_seconds,distance_miles,avg_speed_mph,battery_remaining_ah,battery_used_ah,avg_current_a"]
+    
+    for trip in trip_logs:
+        line = f"{trip['timestamp']},{trip['duration_seconds']},{trip['distance_miles']},{trip['avg_speed_mph']},{trip['battery_remaining_ah']},{trip['battery_used_ah']},{trip['avg_current_a']}"
+        csv_lines.append(line)
+    
+    csv_string = '\n'.join(csv_lines)
     
     return dict(content=csv_string, filename=f"wheelchair_trips_{time.strftime('%Y%m%d_%H%M%S')}.csv")
 
