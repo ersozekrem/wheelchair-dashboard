@@ -131,12 +131,12 @@ def update_button_text(state):
 def toggle_run(n, state, config):
     state["running"] = not state["running"]
     if state["running"]:
-    state["start_time"] = time.time()
-    state["distance"] = 0.0
-    state["battery"] = config["battery_capacity"]
-    state["speed"] = 0
-    state["cumulative_current"] = 0
-    state["current_samples"] = 0
+        state["start_time"] = time.time()
+        state["distance"] = 0.0
+        state["battery"] = config["battery_capacity"]
+        state["speed"] = 0
+        state["cumulative_current"] = 0
+        state["current_samples"] = 0
     return state
 
 
