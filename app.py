@@ -20,7 +20,7 @@ default_config = {
     "peukert_exponent": 1.1,
     "peukert_ref_current": 1.0,
     "mileage": 15.0,
-    "max_current": 10
+    "max_current": 15 
 }
 
 # --- Layout ---
@@ -254,7 +254,7 @@ def simulation_tick(tick, state, config, accessories):
     peukert_multiplier = (amps / config["peukert_ref_current"]) ** (config["peukert_exponent"] - 1)
     
     # Drain faster multiplier for demo speed
-    DRAIN_MULTIPLIER = 1  # Changed from 10 since we update 10x faster now  
+    DRAIN_MULTIPLIER = 3  # Changed from 10 since we update 10x faster now  
 
     # Battery drain (Ah/sec) with Peukert effect
     battery_drain = (amps/3600.0) * peukert_multiplier * DRAIN_MULTIPLIER
