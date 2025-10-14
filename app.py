@@ -12,15 +12,15 @@ server = app.server
 # --- Default config ---
 default_config = {
     "max_speed": 10,
-    "base_current": 0.2,
-    "heater_current": 0.5,
-    "light_current": 0.1,
-    "current_per_speed": 0.25,
+    "base_current": 1,
+    "heater_current": 3,
+    "light_current": 2,
+    "current_per_speed": 1,
     "battery_capacity": 5.0,
     "peukert_exponent": 1.1,
     "peukert_ref_current": 1.0,
     "mileage": 15.0,
-    "max_current": 3.0
+    "max_current": 10
 }
 
 # --- Layout ---
