@@ -391,10 +391,13 @@ def adjust_speed(up, down, state, config, accessories):
 def update_graphs(state, config, accessories):
     speed, distance, battery = state["speed"], state["distance"], state["battery"]
 
-    # Calculate current draw
-    amps = config["base_current"] + speed * config["current_per_speed"]
-    if "lights" in accessories: amps += config["light_current"]
-    if "heater" in accessories: amps += config["heater_current"]
+    # Calculate current draw - only include base current if running
+    if state["running"]:
+        amps = config["base_current"] + speed * config["current_per_speed"]
+        if "lights" in accessories: amps += config["light_current"]
+        if "heater" in accessories: amps += config["heater_current"]
+    else:
+        amps = 0  # No current draw when stopped
     
     # This should never exceed max current due to our limiting logic
     amps = min(amps, config["max_current"])
