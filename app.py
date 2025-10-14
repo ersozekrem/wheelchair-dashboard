@@ -4,6 +4,7 @@ import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 import time
+import pandas as pd
 
 # Initialize app with Bootstrap theme
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.SOLAR])
@@ -67,6 +68,7 @@ app.layout = dbc.Container([
                             dbc.Input(id="max_current", type="number", value=default_config["max_current"], step=1)]),
 
             dbc.Button("Apply Config", id="apply_config", color="warning", className="mt-3"),
+            dbc.Button("Export Trip Logs", id="export_logs", color="info", className="mt-3"),
 
             html.Hr(),
             html.Div(id="status", style={"color": "#06D6A0", "font-weight": "bold"})
@@ -94,7 +96,9 @@ app.layout = dbc.Container([
                                 "distance": 0, "start_time": time.time(), "current_limited": False,
                                 "cumulative_current": 0, "current_samples": 0}),
     dcc.Store(id="sim_config", data=default_config),
-    dcc.Interval(id="sim_interval", interval=1000, n_intervals=0)
+    dcc.Store(id="trip_logs", data=[]),
+    dcc.Interval(id="sim_interval", interval=1000, n_intervals=0),
+    dcc.Download(id="download_logs")
 ], fluid=True)
 
 
@@ -122,13 +126,33 @@ def update_button_text(state):
 
 # Toggle Running
 @app.callback(
-    Output("sim_state", "data"),
+    [Output("sim_state", "data"),
+     Output("trip_logs", "data")],
     Input("start_stop", "n_clicks"),
     State("sim_state", "data"),
     State("sim_config", "data"),
+    State("trip_logs", "data"),
     prevent_initial_call=True
 )
-def toggle_run(n, state, config):
+def toggle_run(n, state, config, trip_logs):
+    # If stopping, save trip data
+    if state["running"]:
+        elapsed = time.time() - state["start_time"]
+        if elapsed > 0 and state["distance"] > 0:
+            avg_speed_mph = (state["distance"] / (elapsed / 3600))
+            avg_current = (state["cumulative_current"] / state["current_samples"]) if state["current_samples"] > 0 else 0
+            
+            trip_data = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "duration_seconds": round(elapsed),
+                "distance_miles": round(state["distance"], 2),
+                "avg_speed_mph": round(avg_speed_mph, 2),
+                "battery_remaining_ah": round(state["battery"], 2),
+                "battery_used_ah": round(config["battery_capacity"] - state["battery"], 2),
+                "avg_current_a": round(avg_current, 2)
+            }
+            trip_logs.append(trip_data)
+    
     state["running"] = not state["running"]
     if state["running"]:
         state["start_time"] = time.time()
@@ -137,7 +161,7 @@ def toggle_run(n, state, config):
         state["speed"] = 0
         state["cumulative_current"] = 0
         state["current_samples"] = 0
-    return state
+    return state, trip_logs
 
 
 # Apply Config
@@ -418,6 +442,22 @@ def update_graphs(state, config, accessories):
 
     return speed_fig, mileage_fig, battery_fig, amp_fig, status, warning
 
+# Export trip logs
+@app.callback(
+    Output("download_logs", "data"),
+    Input("export_logs", "n_clicks"),
+    State("trip_logs", "data"),
+    prevent_initial_call=True
+)
+def export_logs(n_clicks, trip_logs):
+    if not trip_logs:
+        return None
+    
+    import pandas as pd
+    df = pd.DataFrame(trip_logs)
+    csv_string = df.to_csv(index=False)
+    
+    return dict(content=csv_string, filename=f"wheelchair_trips_{time.strftime('%Y%m%d_%H%M%S')}.csv")
 
 # --- Run App ---
 if __name__ == "__main__":
