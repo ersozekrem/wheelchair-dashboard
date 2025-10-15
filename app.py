@@ -453,7 +453,8 @@ def update_graphs(state, config, accessories):
     Avg Speed: {avg_speed_mph:.2f} mph | 
     Distance Travelled: {distance:.2f} mi | 
     Battery Remaining: {battery:.2f} Ah / {config['battery_capacity']} Ah |
-    Avg Current Draw: {avg_current:.2f} A / {config['max_current']} A max
+    Avg Current Draw: {avg_current:.2f} A / {config['max_current']} A max |
+    Trip Saved: {state.get('trip_saved', False)}
     """
     
     # Warning messages
@@ -473,7 +474,10 @@ def update_graphs(state, config, accessories):
     prevent_initial_call=True
 )
 def export_logs(n_clicks, trip_logs):
-    if not trip_logs:
+    print(f"Export clicked! n_clicks={n_clicks}, trip_logs length={len(trip_logs)}")
+    
+    if not trip_logs or len(trip_logs) == 0:
+        print("No trips to export")
         return None
     
     # Create CSV manually without pandas
@@ -484,6 +488,7 @@ def export_logs(n_clicks, trip_logs):
         csv_lines.append(line)
     
     csv_string = '\n'.join(csv_lines)
+    print(f"CSV created with {len(csv_lines)-1} trips")
     
     return dict(content=csv_string, filename=f"wheelchair_trips_{time.strftime('%Y%m%d_%H%M%S')}.csv")
 
