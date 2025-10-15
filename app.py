@@ -25,23 +25,21 @@ default_config = {
 
 # --- Utility Functions ---
 def make_bar(title, value, text, color, maxv):
-    """Reusable bar graph generator."""
     return go.Figure(
         go.Bar(x=[title], y=[value], text=[text], textposition="auto", marker=dict(color=color))
     ).update_yaxes(range=[0, maxv]).update_layout(template="plotly_dark", showlegend=False)
 
 def limit_speed(state, config, accessories):
-    """Adjust wheelchair speed if current exceeds max."""
     amps = config["base_current"] + state["speed"] * config["current_per_speed"]
     if "lights" in accessories: amps += config["light_current"]
     if "heater" in accessories: amps += config["heater_current"]
 
     if amps > config["max_current"]:
-        available_current = config["max_current"] - config["base_current"]
-        if "lights" in accessories: available_current -= config["light_current"]
-        if "heater" in accessories: available_current -= config["heater_current"]
+        available = config["max_current"] - config["base_current"]
+        if "lights" in accessories: available -= config["light_current"]
+        if "heater" in accessories: available -= config["heater_current"]
         if config["current_per_speed"] > 0:
-            state["speed"] = max(0, available_current / config["current_per_speed"])
+            state["speed"] = max(0, available / config["current_per_speed"])
         state["current_limited"] = True
     else:
         state["current_limited"] = False
@@ -71,14 +69,13 @@ inputs = [
 # --- Layout ---
 app.layout = dbc.Container([
     dbc.Row([
+        # Sidebar
         dbc.Col([
             html.H2("♿ Wheelchair Dashboard", style={"color": "#FFD166"}),
-
             dbc.Button("▶ Start", id="start_stop", color="success", className="m-1"),
             dbc.Button("▲ Speed Up", id="speed_up", color="primary", className="m-1"),
             dbc.Button("▼ Speed Down", id="speed_down", color="danger", className="m-1"),
             html.Hr(),
-
             html.H5("Accessories"),
             dbc.Checklist(
                 id="accessories",
@@ -87,12 +84,12 @@ app.layout = dbc.Container([
                 value=[], switch=True
             ),
             html.Hr(), html.H5("Simulation Variables"), *inputs,
-
             dbc.Button("Apply Config", id="apply_config", color="warning", className="mt-3"),
             dbc.Button("Export Logs", id="export_logs", color="info", className="mt-3"),
             html.Hr(), html.Div(id="status", style={"color": "#06D6A0", "font-weight": "bold"})
         ], md=3, style={"backgroundColor": "#073B4C", "padding": "20px", "border-radius": "8px"}),
 
+        # Graphs
         dbc.Col([
             dbc.Row([
                 dbc.Col(dcc.Graph(id="speed_graph"), md=6),
@@ -105,7 +102,6 @@ app.layout = dbc.Container([
             dbc.Row([dbc.Col(html.Div(id="current_limited_warning", style={"textAlign": "center"}))])
         ], md=9)
     ]),
-    # Stores
     dcc.Store(id="sim_state", data={"running": False, "speed": 0, "battery": default_config["battery_capacity"],
                                    "distance": 0, "start_time": time.time(),
                                    "current_limited": False, "cumulative_current": 0,
@@ -123,8 +119,7 @@ def update_button(state):
     return "■ Stop" if state["running"] else "▶ Start"
 
 @app.callback(Output("sim_interval", "disabled"), Input("sim_state", "data"))
-def toggle_interval(state):
-    return not state["running"]
+def toggle_interval(state): return not state["running"]
 
 @app.callback(
     [Output("sim_state", "data"), Output("trip_logs", "data")],
@@ -156,9 +151,9 @@ def toggle_run(_, state, config, logs):
 
 @app.callback(Output("sim_config", "data"), Input("apply_config", "n_clicks"),
               [State(k, "value") for k, _ in fields], prevent_initial_call=True)
-def update_config(_, *values):
-    return {k: v for (k, _), v in zip(fields, values)}
+def update_config(_, *values): return {k: v for (k, _), v in zip(fields, values)}
 
+# --- FIXED battery-depletion logging here ---
 @app.callback(
     [Output("sim_state", "data", allow_duplicate=True),
      Output("trip_logs", "data", allow_duplicate=True)],
@@ -169,28 +164,38 @@ def update_config(_, *values):
 )
 def tick(_, state, config, accessories, logs):
     if not state["running"]: raise dash.exceptions.PreventUpdate
+
+    # ✅ Handle battery depletion with proper logging
     if state["battery"] <= 0:
-        state["running"] = False
-        state["speed"] = 0
-        if not state["trip_saved"] and state["distance"] > 0:
-            logs.append({"timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                         "distance_miles": round(state["distance"], 2),
-                         "battery_remaining_ah": 0})
+        state.update({"battery": 0, "speed": 0, "running": False})
+        if not state.get("trip_saved", False) and state["distance"] > 0:
+            elapsed = time.time() - state["start_time"]
+            avg_speed = state["distance"] / (elapsed / 3600) if elapsed else 0
+            avg_curr = state["cumulative_current"] / state["current_samples"] if state["current_samples"] else 0
+            logs.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "duration_seconds": int(elapsed),
+                "distance_miles": round(state["distance"], 2),
+                "avg_speed_mph": round(avg_speed, 2),
+                "battery_remaining_ah": 0,
+                "battery_used_ah": round(config["battery_capacity"], 2),
+                "avg_current_a": round(avg_curr, 2)
+            })
             state["trip_saved"] = True
         return state, logs
 
+    # --- Normal simulation update ---
     state = limit_speed(state, config, accessories)
     amps = config["base_current"] + state["speed"] * config["current_per_speed"]
     if "lights" in accessories: amps += config["light_current"]
     if "heater" in accessories: amps += config["heater_current"]
 
     peuk = (amps / config["peukert_ref_current"]) ** (config["peukert_exponent"] - 1)
-    DRAIN = 3  # faster drain rate for demo
+    DRAIN = 3  # Demo drain rate
     state["battery"] = max(0, state["battery"] - (amps / 3600) * peuk * DRAIN)
     state["cumulative_current"] += amps
     state["current_samples"] += 1
     state["distance"] += state["speed"] * 0.000621371
-    if state["battery"] <= 0: state.update({"battery": 0, "speed": 0, "running": False})
     return state, logs
 
 @app.callback(Output("sim_state", "data", allow_duplicate=True),
@@ -205,10 +210,8 @@ def adjust_accessories(acc, state, config): return limit_speed(state, config, ac
 def adjust_speed(up, down, state, config, acc):
     if state["battery"] <= 0: return state
     ctx = dash.ctx
-    if ctx.triggered_id == "speed_up":
-        state["speed"] = min(config["max_speed"], state["speed"] + 1)
-    elif ctx.triggered_id == "speed_down":
-        state["speed"] = max(0, state["speed"] - 1)
+    if ctx.triggered_id == "speed_up": state["speed"] = min(config["max_speed"], state["speed"] + 1)
+    elif ctx.triggered_id == "speed_down": state["speed"] = max(0, state["speed"] - 1)
     return limit_speed(state, config, acc)
 
 @app.callback(
@@ -219,8 +222,9 @@ def adjust_speed(up, down, state, config, acc):
 )
 def update_graphs(s, c, acc):
     speed, dist, batt = s["speed"], s["distance"], s["battery"]
-    amps = c["base_current"] + speed * c["current_per_speed"] + \
-           ("lights" in acc) * c["light_current"] + ("heater" in acc) * c["heater_current"]
+    amps = c["base_current"] + speed * c["current_per_speed"]
+    if "lights" in acc: amps += c["light_current"]
+    if "heater" in acc: amps += c["heater_current"]
     amps = min(amps, c["max_current"])
 
     b_pct = batt / c["battery_capacity"] if c["battery_capacity"] else 0
@@ -234,8 +238,8 @@ def update_graphs(s, c, acc):
     elapsed = time.time() - s["start_time"] if s["running"] else 0
     avg_speed = dist / (elapsed / 3600) if elapsed > 0 else 0
     avg_curr = s["cumulative_current"] / s["current_samples"] if s["current_samples"] else 0
-
     h, rem = divmod(int(elapsed), 3600); m, sec = divmod(rem, 60)
+
     status = (f"Running: {s['running']} | Time {h:02}:{m:02}:{sec:02} | "
               f"Speed {speed:.1f} m/s | Dist {dist:.2f} mi | "
               f"Battery {batt:.2f}/{c['battery_capacity']} Ah | Avg {avg_curr:.2f} A")
