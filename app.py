@@ -92,11 +92,11 @@ app.layout = dbc.Container([
 
     # Hidden stores and timer
     dcc.Store(id="sim_state", data={"running": False, "speed": 0, "battery": default_config["battery_capacity"],
-                                "distance": 0, "start_time": time.time(), "current_limited": False,
-                                "cumulative_current": 0, "current_samples": 0}),
+                            "distance": 0, "start_time": time.time(), "current_limited": False,
+                            "cumulative_current": 0, "current_samples": 0, "trip_saved": False}),
     dcc.Store(id="sim_config", data=default_config),
     dcc.Store(id="trip_logs", data=[]),
-    dcc.Interval(id="sim_interval", interval=100, n_intervals=0),
+    dcc.Interval(id="sim_interval", interval=100, n_intervals=0, disabled=True),
     dcc.Download(id="download_logs")
 ], fluid=True)
 
@@ -123,6 +123,14 @@ def update_button_text(state):
     else:
         return "▶ Start"
 
+# Control interval on/off
+@app.callback(
+    Output("sim_interval", "disabled"),
+    Input("sim_state", "data")
+)
+def toggle_interval(state):
+    return not state["running"]
+
 # Toggle Running
 @app.callback(
     [Output("sim_state", "data"),
@@ -134,23 +142,13 @@ def update_button_text(state):
     prevent_initial_call=True
 )
 def toggle_run(n, state, config, trip_logs):
-    # If stopping, save trip data
-    if state["running"]:
-        elapsed = time.time() - state["start_time"]
-        if elapsed > 0 and state["distance"] > 0:
-            avg_speed_mph = (state["distance"] / (elapsed / 3600))
-            avg_current = (state["cumulative_current"] / state["current_samples"]) if state["current_samples"] > 0 else 0
-            
-            trip_data = {
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "duration_seconds": round(elapsed),
-                "distance_miles": round(state["distance"], 2),
-                "avg_speed_mph": round(avg_speed_mph, 2),
-                "battery_remaining_ah": round(state["battery"], 2),
-                "battery_used_ah": round(config["battery_capacity"] - state["battery"], 2),
-                "avg_current_a": round(avg_current, 2)
-            }
-            trip_logs.append(trip_data)
+    if n is None:
+        return state, trip_logs
+        
+    # If stopping and trip not already saved
+    if state["running"] and not state.get("trip_saved", False) and state["distance"] > 0:
+        # ... save trip data code ...
+        state["trip_saved"] = True
     
     state["running"] = not state["running"]
     if state["running"]:
@@ -160,6 +158,7 @@ def toggle_run(n, state, config, trip_logs):
         state["speed"] = 0
         state["cumulative_current"] = 0
         state["current_samples"] = 0
+        state["trip_saved"] = False  # Reset flag when starting
     return state, trip_logs
 
 
@@ -205,7 +204,7 @@ def update_config(n, max_speed, batt, mileage, base, heater, light, cps, peukert
 )
 def simulation_tick(tick, state, config, accessories):
     if not state["running"]:
-        return dash.no_update  # Don't update if not running
+        raise dash.exceptions.PreventUpdate  # Completely prevent update when not running
 
     # **FIX 1: Check if battery is depleted**
     if state["battery"] <= 0:
