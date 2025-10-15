@@ -195,23 +195,44 @@ def update_config(n, max_speed, batt, mileage, base, heater, light, cps, peukert
 
 # Simulation Tick - CORRECTED
 @app.callback(
-    Output("sim_state", "data", allow_duplicate=True),
+    [Output("sim_state", "data", allow_duplicate=True),
+     Output("trip_logs", "data", allow_duplicate=True)],
     Input("sim_interval", "n_intervals"),
     State("sim_state", "data"),
     State("sim_config", "data"),
     State("accessories", "value"),
+    State("trip_logs", "data"),
     prevent_initial_call="initial_duplicate"
 )
-def simulation_tick(tick, state, config, accessories):
+def simulation_tick(tick, state, config, accessories, trip_logs):
     if not state["running"]:
-        raise dash.exceptions.PreventUpdate  # Completely prevent update when not running
+        raise dash.exceptions.PreventUpdate
 
-    # **FIX 1: Check if battery is depleted**
+    # Check if battery is depleted
     if state["battery"] <= 0:
         state["battery"] = 0
         state["speed"] = 0
         state["running"] = False
-        return state
+        
+        # Save trip when battery dies
+        if state["distance"] > 0 and not state.get("trip_saved", False):
+            elapsed = time.time() - state["start_time"]
+            avg_speed_mph = (state["distance"] / (elapsed / 3600)) if elapsed > 0 else 0
+            avg_current = (state["cumulative_current"] / state["current_samples"]) if state["current_samples"] > 0 else 0
+            
+            trip_data = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "duration_seconds": round(elapsed),
+                "distance_miles": round(state["distance"], 2),
+                "avg_speed_mph": round(avg_speed_mph, 2),
+                "battery_remaining_ah": 0,
+                "battery_used_ah": round(config["battery_capacity"], 2),
+                "avg_current_a": round(avg_current, 2)
+            }
+            trip_logs.append(trip_data)
+            state["trip_saved"] = True
+        
+        return state, trip_logs
 
     # Calculate current demand at current speed
     amps = config["base_current"] + state["speed"] * config["current_per_speed"]
@@ -274,7 +295,7 @@ def simulation_tick(tick, state, config, accessories):
         state["speed"] = 0
         state["running"] = False
 
-    return state
+    return state, trip_logs
 
 
 # Handle accessory changes
