@@ -7,3 +7,8 @@
   -  Changed the current draw display to show average current draw instead of instantaneous current draw
   -  Created a storage mechanism for trip logs. Stored the trip data (avg speed, distance travelled, battery remaining)
   -  Made simulation more responsive
+## 10/15/25
+- **What I worked on:**
+  -  Ran several trips, extracted the data, and created more realistic trips with ChatGPT
+  -  Improved button responsiveness and multiple unnecessary logs being created
+  -  Fixed the issue where the logs dont save when the battery depletes
