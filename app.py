@@ -1,3 +1,4 @@
+import os
 import dash
 from dash import html, dcc
 import dash_bootstrap_components as dbc
@@ -282,4 +283,4 @@ def export_logs(_, logs):
 # --- Run ---
 if __name__ == "__main__":
     print("✅ Wheelchair simulator running at http://127.0.0.1:8050/")
-    app.run(debug=True)
+    app.run(debug=False)
