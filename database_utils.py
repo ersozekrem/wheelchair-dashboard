@@ -18,3 +18,16 @@ def save_trip(trip_data):
     ))
     conn.commit()
     conn.close()
+
+def get_user_efficiency(user_id):
+    conn = sqlite3.connect("wheelchair_usage.db")
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT SUM(distance_miles), SUM(battery_used_ah)
+        FROM trips WHERE user_id=?
+    """, (user_id,))
+    total_distance, total_ah = cur.fetchone()
+    conn.close()
+    if not total_distance or not total_ah or total_ah == 0:
+        return None
+    return total_distance / total_ah
