@@ -142,7 +142,20 @@ def toggle_run(_, state, config, logs):
             "avg_current_a": round(avg_curr, 2),
         })
         state["trip_saved"] = True
-
+        import os
+        import csv
+        log_path = os.path.join("data", "user_trip_logs.csv")
+        file_exists = os.path.isfile(log_path)
+        fields = ["timestamp", "duration_seconds", "distance_miles",
+              "avg_speed_mph", "battery_remaining_ah",
+              "battery_used_ah", "avg_current_a"]
+        with open(log_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fields)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(logs[-1])
+        
+        
     state["running"] = not state["running"]
     if state["running"]:
         state.update({"start_time": time.time(), "distance": 0, "battery": config["battery_capacity"],
