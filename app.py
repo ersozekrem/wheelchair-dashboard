@@ -240,24 +240,28 @@ def adjust_speed(up, down, state, config, acc):
 )
 def update_graphs(s, c, acc):
     speed, dist, batt = s["speed"], s["distance"], s["battery"]
+
     # --- Predicted range (if model exists and battery info is available)
     predicted_range_text = ""
     if model:
-    import numpy as np
-    avg_speed = s["speed"] * 2.237  # convert m/s to mph
-    avg_current = c["base_current"] + avg_speed * 0.1
-    if "heater" in acc:
-        avg_current += c["heater_current"]
-    if "lights" in acc:
-        avg_current += c["light_current"]
-    battery_used = c["battery_capacity"] - s["battery"]
-    battery_used = battery_used if battery_used > 0 else 0.1
-    x = np.array([[avg_speed, avg_current, battery_used]])
-    miles_per_ah = model.predict(x)[0]
-    predicted_range_text = f" | Predicted Range: {(miles_per_ah * c['battery_capacity']):.1f} miles"
+        import numpy as np
+        avg_speed = s["speed"] * 2.237  # convert m/s to mph
+        avg_current = c["base_current"] + avg_speed * 0.1
+        if "heater" in acc:
+            avg_current += c["heater_current"]
+        if "lights" in acc:
+            avg_current += c["light_current"]
+        battery_used = c["battery_capacity"] - s["battery"]
+        battery_used = battery_used if battery_used > 0 else 0.1
+        x = np.array([[avg_speed, avg_current, battery_used]])
+        miles_per_ah = model.predict(x)[0]
+        predicted_range_text = f" | Predicted Range: {(miles_per_ah * c['battery_capacity']):.1f} miles"
+
     amps = c["base_current"] + speed * c["current_per_speed"]
-    if "lights" in acc: amps += c["light_current"]
-    if "heater" in acc: amps += c["heater_current"]
+    if "lights" in acc:
+        amps += c["light_current"]
+    if "heater" in acc:
+        amps += c["heater_current"]
     amps = min(amps, c["max_current"])
 
     b_pct = batt / c["battery_capacity"] if c["battery_capacity"] else 0
@@ -265,25 +269,29 @@ def update_graphs(s, c, acc):
         make_bar("Speed", speed, f"{speed:.1f} m/s", "#118AB2", c["max_speed"]),
         make_bar("Mileage Left", b_pct * c["mileage"], f"{b_pct * c['mileage']:.1f} mi", "#FFD166", c["mileage"]),
         make_bar("Battery", b_pct * 100, f"{b_pct * 100:.1f}%", "#06D6A0", 100),
-        make_bar("Amps", amps, f"{amps:.1f} A", "#EF476F", c["max_current"])
+        make_bar("Amps", amps, f"{amps:.1f} A", "#EF476F", c["max_current"]),
     ]
 
     elapsed = time.time() - s["start_time"] if s["running"] else 0
     avg_speed = dist / (elapsed / 3600) if elapsed > 0 else 0
     avg_curr = s["cumulative_current"] / s["current_samples"] if s["current_samples"] else 0
-    h, rem = divmod(int(elapsed), 3600); m, sec = divmod(rem, 60)
+    h, rem = divmod(int(elapsed), 3600)
+    m, sec = divmod(rem, 60)
 
-    status = (f"Running: {s['running']} | Time {h:02}:{m:02}:{sec:02} | "
-          f"Speed {speed:.1f} m/s | Dist {dist:.2f} mi | "
-          f"Battery {batt:.2f}/{c['battery_capacity']} Ah | "
-          f"Avg {avg_curr:.2f} A{predicted_range_text}")
+    status = (
+        f"Running: {s['running']} | Time {h:02}:{m:02}:{sec:02} | "
+        f"Speed {speed:.1f} m/s | Dist {dist:.2f} mi | "
+        f"Battery {batt:.2f}/{c['battery_capacity']} Ah | "
+        f"Avg {avg_curr:.2f} A{predicted_range_text}"
+    )
 
     warning = (
         dbc.Alert("🔋 Battery depleted!", color="danger") if batt <= 0 else
         dbc.Alert("⚠️ Current limited!", color="warning") if s["current_limited"] else ""
     )
-    return *figs, status, warning
 
+    return *figs, status, warning
+    
 @app.callback(Output("download_logs", "data"),
               Input("export_logs", "n_clicks"), State("trip_logs", "data"),
               prevent_initial_call=True)
