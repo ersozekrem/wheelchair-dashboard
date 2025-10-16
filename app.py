@@ -241,8 +241,8 @@ def adjust_speed(up, down, state, config, acc):
 def update_graphs(s, c, acc):
     speed, dist, batt = s["speed"], s["distance"], s["battery"]
     # --- Predicted range (if model exists and battery info is available)
-predicted_range_text = ""
-if model:
+    predicted_range_text = ""
+    if model:
     import numpy as np
     avg_speed = s["speed"] * 2.237  # convert m/s to mph
     avg_current = c["base_current"] + avg_speed * 0.1
