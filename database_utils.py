@@ -31,3 +31,15 @@ def get_user_efficiency(user_id):
     if not total_distance or not total_ah or total_ah == 0:
         return None
     return total_distance / total_ah
+
+def predict_range(user_id, battery_remaining_ah, avg_speed_mph, heater_usage_pct, light_usage_pct):
+    base_eff = get_user_efficiency(user_id)
+    if not base_eff:
+        return None
+    eff = base_eff
+    eff *= (1 - heater_usage_pct * 0.003)
+    eff *= (1 - light_usage_pct * 0.001)
+    if avg_speed_mph > 15:
+        eff *= (1 - (avg_speed_mph - 15) * 0.02)
+    predicted_miles = battery_remaining_ah * eff
+    return predicted_miles
