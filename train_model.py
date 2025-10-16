@@ -27,3 +27,7 @@ model.fit(X_train, y_train)
 # Evaluate
 r2 = model.score(X_test, y_test)
 print(f"\nModel trained. R²: {r2:.3f}")
+
+import joblib
+joblib.dump(model, "data/battery_range_predictor.pkl")
+print("Model saved to data/battery_range_predictor.pkl")
