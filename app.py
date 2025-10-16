@@ -1,4 +1,3 @@
-import os
 import dash
 from dash import html, dcc
 import dash_bootstrap_components as dbc
@@ -229,26 +228,9 @@ def update_graphs(s, c, acc):
     amps = min(amps, c["max_current"])
 
     b_pct = batt / c["battery_capacity"] if c["battery_capacity"] else 0
-
-    from database_utils import predict_range
-
-    user_id = "user_001"
-    predicted_range = predict_range(
-        user_id=user_id,
-        battery_remaining_ah=batt,
-        avg_speed_mph=speed * 2.237,
-        heater_usage_pct=100 if "heater" in acc else 0,
-        light_usage_pct=100 if "lights" in acc else 0
-    )
-
-    if predicted_range is None:
-        mileage_left = b_pct * c["mileage"]
-    else:
-        mileage_left = predicted_range
-
     figs = [
         make_bar("Speed", speed, f"{speed:.1f} m/s", "#118AB2", c["max_speed"]),
-        make_bar("Mileage Left", mileage_left, f"{mileage_left:.1f} mi", "#FFD166", c["mileage"]),
+        make_bar("Mileage Left", b_pct * c["mileage"], f"{b_pct * c['mileage']:.1f} mi", "#FFD166", c["mileage"]),
         make_bar("Battery", b_pct * 100, f"{b_pct * 100:.1f}%", "#06D6A0", 100),
         make_bar("Amps", amps, f"{amps:.1f} A", "#EF476F", c["max_current"])
     ]
@@ -283,4 +265,4 @@ def export_logs(_, logs):
 # --- Run ---
 if __name__ == "__main__":
     print("✅ Wheelchair simulator running at http://127.0.0.1:8050/")
-    app.run(debug=False)
+    app.run(debug=True)
