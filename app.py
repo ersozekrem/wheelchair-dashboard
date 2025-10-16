@@ -4,6 +4,11 @@ import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 import time
+import joblib
+import os
+
+model_path = os.path.join("data", "battery_range_predictor.pkl")
+model = joblib.load(model_path) if os.path.exists(model_path) else None
 
 # --- App Init ---
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.SOLAR], suppress_callback_exceptions=True)
@@ -235,6 +240,21 @@ def adjust_speed(up, down, state, config, acc):
 )
 def update_graphs(s, c, acc):
     speed, dist, batt = s["speed"], s["distance"], s["battery"]
+    # --- Predicted range (if model exists and battery info is available)
+predicted_range_text = ""
+if model:
+    import numpy as np
+    avg_speed = s["speed"] * 2.237  # convert m/s to mph
+    avg_current = c["base_current"] + avg_speed * 0.1
+    if "heater" in acc:
+        avg_current += c["heater_current"]
+    if "lights" in acc:
+        avg_current += c["light_current"]
+    battery_used = c["battery_capacity"] - s["battery"]
+    battery_used = battery_used if battery_used > 0 else 0.1
+    x = np.array([[avg_speed, avg_current, battery_used]])
+    miles_per_ah = model.predict(x)[0]
+    predicted_range_text = f" | Predicted Range: {(miles_per_ah * c['battery_capacity']):.1f} miles"
     amps = c["base_current"] + speed * c["current_per_speed"]
     if "lights" in acc: amps += c["light_current"]
     if "heater" in acc: amps += c["heater_current"]
@@ -254,8 +274,9 @@ def update_graphs(s, c, acc):
     h, rem = divmod(int(elapsed), 3600); m, sec = divmod(rem, 60)
 
     status = (f"Running: {s['running']} | Time {h:02}:{m:02}:{sec:02} | "
-              f"Speed {speed:.1f} m/s | Dist {dist:.2f} mi | "
-              f"Battery {batt:.2f}/{c['battery_capacity']} Ah | Avg {avg_curr:.2f} A")
+          f"Speed {speed:.1f} m/s | Dist {dist:.2f} mi | "
+          f"Battery {batt:.2f}/{c['battery_capacity']} Ah | "
+          f"Avg {avg_curr:.2f} A{predicted_range_text}")
 
     warning = (
         dbc.Alert("🔋 Battery depleted!", color="danger") if batt <= 0 else
