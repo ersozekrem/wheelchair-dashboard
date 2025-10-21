@@ -17,3 +17,7 @@
   -  Created a trip logging system that adds each trip to a CSV file
   -  Began to create a machine learning model using scikit-learn and Random Forest
   -  Integrated the trained model into the main app so it shows "Predicted Range" in the UI
+## 10/20/25
+- **What I worked on:**
+  -  Ran the random forest regressor model using 3 trips
+  -  Learned how R^2 is calculated, and created python visualization to plot actual vs predicted values
