@@ -16,7 +16,7 @@ server = app.server
 
 # --- Default Config ---
 default_config = {
-    "max_speed": 10,
+    "max_speed": 3.58,
     "base_current": 1,
     "heater_current": 3,
     "light_current": 2,
